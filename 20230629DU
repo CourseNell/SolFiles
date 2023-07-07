@@ -1,0 +1,89 @@
+pragma solidity ^0.8.0;
+
+contract DiceGame {
+    address payable public owner;
+    uint public minBet;
+    uint public maxBet;
+    uint public randomSeed;
+    uint public result;
+    uint public totalBet;
+    address payable[] public players;
+    mapping(address => uint) public playerBet;
+    mapping(address => bool) public playerExist;
+    mapping(address => uint) public playerWin;
+    mapping(uint => address payable[]) public playerByNum;
+    event GameStart(uint _minBet, uint _maxBet);
+    event GameEnd(uint _result, uint _totalBet, address payable _winner);
+    event Bet(address indexed _player, uint _amount);
+    
+    constructor(uint _minBet, uint _maxBet) {
+        owner = payable(msg.sender);
+        minBet = _minBet;
+        maxBet = _maxBet;
+        randomSeed = block.timestamp;
+        emit GameStart(_minBet, _maxBet);
+    }
+    
+    function bet() public payable {
+        require(msg.value >= minBet && msg.value <= maxBet, "Invalid bet amount");
+        require(!playerExist[msg.sender], "Player has already placed a bet");
+        players.push(payable(msg.sender));
+        playerExist[msg.sender] = true;
+        playerBet[msg.sender] = msg.value;
+        totalBet += msg.value;
+        emit Bet(msg.sender, msg.value);
+    }
+    
+    function generateRandomNumber() private returns (uint) {
+        randomSeed = uint(keccak256(abi.encodePacked(randomSeed, block.timestamp, block.difficulty)));
+        return randomSeed % 10;
+    }
+    
+    function endGame() public {
+        require(msg.sender == owner, "Only owner can end the game");
+        result = generateRandomNumber();
+        address payable winner;
+        uint winnerAmount;
+        if (result >= 5) {
+            winner = players[players.length - 1];
+            winnerAmount = totalBet * 9 / 10;
+        } else {
+            winner = players[0];
+            winnerAmount = totalBet * 1 / 10;
+        }
+        playerWin[winner] += winnerAmount;
+        winner.transfer(winnerAmount);
+        emit GameEnd(result, totalBet, winner);
+        // reset game
+        totalBet = 0;
+        randomSeed = block.timestamp;
+        delete players;
+        for (uint i = 0; i < playerByNum[result].length; i++) {
+            address payable player = playerByNum[result][i];
+            playerExist[player] = false;
+            playerBet[player] = 0;
+        }
+        for (uint i = 0; i < playerByNum[9 - result].length; i++) {
+            address payable player = playerByNum[9 - result][i];
+            playerExist[player] = false;
+            playerBet[player] = 0;
+        }
+        delete playerByNum[result];
+        delete playerByNum[9 - result];
+    }
+    
+    function withdraw() public {
+        require(playerWin[msg.sender] > 0, "No winnings available");
+        uint amount = playerWin[msg.sender];
+        playerWin[msg.sender] = 0;
+        payable(msg.sender).transfer(amount);
+    }
+    
+    function getPlayerListByNumber(uint num) public view returns (address payable[] memory) {
+        return playerByNum[num];
+    }
+    
+    function getPlayerList() public view returns (address payable[] memory) {
+        return players;
+    }
+}
